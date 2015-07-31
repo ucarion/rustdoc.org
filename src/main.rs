@@ -138,6 +138,8 @@ fn load_docs(project: &GithubProject, output_dir: &Path) -> Result<()> {
     Ok(())
 }
 
+// TODO this is super gross, but File::exists is unstable apparently... refactor
+// this or better yet: avoid needing to make this check in the first place
 fn dir_exists(path: &Path) -> bool {
     let err = fs::metadata(path).err().map(|e| e.kind());
 
@@ -163,6 +165,7 @@ fn main() {
         };
 
         let dir_for_project = github_base_dir.join(username).join(repo);
+        // TODO reorder things so that I don't need this check
         if !dir_exists(&dir_for_project) {
             load_docs(&project, &dir_for_project).unwrap();
         }
