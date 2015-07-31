@@ -1,4 +1,5 @@
 extern crate hyper;
+#[macro_use] extern crate nickel;
 extern crate tempdir;
 extern crate zip;
 
@@ -8,6 +9,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 
 use hyper::Client;
+use nickel::{HttpRouter, Nickel, StaticFilesHandler};
 use tempdir::TempDir;
 use zip::ZipArchive;
 use zip::result::ZipError;
@@ -34,6 +36,7 @@ impl From<ZipError> for RustdocError {
     fn from(e: ZipError) -> RustdocError { RustdocError::ZipError(e) }
 }
 
+#[derive(Debug)]
 struct GithubProject {
     username: String,
     repo: String
@@ -118,6 +121,7 @@ fn copy_dir(from: &Path, to: &Path) -> Result<()> {
 
 fn copy_docs(crate_root: &Path, output_dir: &Path) -> Result<()> {
     let doc_dir = crate_root.join("target").join("doc");
+    try!(fs::create_dir_all(output_dir.parent().unwrap()));
     copy_dir(&doc_dir, output_dir)
 }
 
@@ -134,11 +138,37 @@ fn load_docs(project: &GithubProject, output_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-fn main() {
-    let project = GithubProject {
-        username: "hyperium".to_owned(),
-        repo: "hyper".to_owned()
-    };
+fn dir_exists(path: &Path) -> bool {
+    let err = fs::metadata(path).err().map(|e| e.kind());
 
-    println!("{:?}", load_docs(&project, Path::new("output")));
+    match err {
+        Some(io::ErrorKind::NotFound) => false,
+        _ => true
+    }
+}
+
+fn main() {
+    let base_dir = PathBuf::from("www");
+    let github_base_dir = base_dir.join("github.com");
+    let github_template = "/github.com/:username/:repo/**";
+
+    let mut server = Nickel::new();
+
+    server.get(github_template, middleware! { |req|
+        let username = req.param("username").unwrap();
+        let repo = req.param("repo").unwrap();
+        let project = GithubProject {
+            username: username.to_owned(),
+            repo: repo.to_owned()
+        };
+
+        let dir_for_project = github_base_dir.join(username).join(repo);
+        if !dir_exists(&dir_for_project) {
+            load_docs(&project, &dir_for_project).unwrap();
+        }
+    });
+
+    server.utilize(StaticFilesHandler::new(base_dir));
+
+    server.listen("localhost:1789");
 }
